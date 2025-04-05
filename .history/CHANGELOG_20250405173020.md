@@ -1,0 +1,48 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- Python management script (`manage.py`) for service orchestration
+  - Interactive menu system for managing services (now runs by default)
+  - Start, stop, and restart functionality for MongoDB, server, and client
+  - Service status monitoring
+  - Log viewing capabilities
+  - Port conflict detection and resolution
+  - Automatic Vite configuration updates for custom ports
+  - Option to open client UI in browser
+- Material-UI components for improved user interface
+- Chart.js integration for transaction analytics
+- Real-time transaction updates using Socket.IO
+- MongoDB integration with proper connection handling
+- Environment configuration management
+- Comprehensive error handling and logging system
+
+### Changed
+- Enhanced project structure with separate client and server directories
+- Improved development workflow with automated setup scripts
+- Updated dependency management with explicit versions
+- Modernized UI components with Material-UI
+- `manage.py` now runs the interactive menu by default when called without arguments.
+
+### Fixed
+- Port conflict issues in development environment
+- MongoDB connection handling and error recovery
+- Log directory creation and permissions
+- Client-side dependency installation process
+- Compatibility issue with `psutil` versions by reverting `net_connections()` to `connections()` in `manage.py`.
+
+## [0.1.0] - 2024-04-05
+
+### Added
+- Initial project setup
+- Basic MERN stack implementation
+- Docker configuration for development
+- Basic transaction management functionality
+- User authentication system
+- Project documentation 

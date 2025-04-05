@@ -1,0 +1,211 @@
+import { Request, Response } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import { config } from '../config/config';
+import Transaction, { TransactionStep } from '../models/Transaction';
+import { exchangeRateService } from '../services/exchangeRateService';
+
+export const createTransaction = async (req: Request, res: Response) => {
+  try {
+    const { peso } = req.body;
+    
+    // Get real-time exchange rate and calculate USD amount
+    const { usdAmount: dollar, rate: exchangeRate } = await exchangeRateService.convertPhpToUsd(peso);
+    
+    const handlingFee = (peso * config.handlingFeePercentage) / 100;
+    
+    const transaction = new Transaction({
+      transactionId: uuidv4(),
+      amount: { peso, dollar },
+      exchangeRate,
+      handlingFee,
+      currentStep: TransactionStep.INITIATED,
+      stepTimestamps: new Map([[TransactionStep.INITIATED, new Date()]]),
+      documents: { validationDoc: null, receiptDoc: null },
+      dollarDelivery: { scheduledDate: null, location: null, serialNumbers: [] },
+      notifications: [{
+        step: TransactionStep.INITIATED,
+        timestamp: new Date(),
+        message: 'Transaction initiated successfully'
+      }]
+    });
+
+    await transaction.save();
+    
+    // Emit socket event for real-time updates
+    req.app.get('io').emit('transactionUpdate', {
+      transactionId: transaction.transactionId,
+      step: TransactionStep.INITIATED
+    });
+
+    res.status(201).json(transaction);
+  } catch (error) {
+    console.error('Error creating transaction:', error);
+    res.status(500).json({ 
+      error: 'Error creating transaction',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+export const getTransaction = async (req: Request, res: Response) => {
+  try {
+    const transaction = await Transaction.findOne({ 
+      transactionId: req.params.transactionId 
+    });
+    
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+    
+    res.json(transaction);
+  } catch (error) {
+    res.status(500).json({ error: 'Error fetching transaction' });
+  }
+};
+
+export const updateTransactionStep = async (req: Request, res: Response) => {
+  try {
+    const { transactionId } = req.params;
+    const { step, additionalData } = req.body;
+    
+    if (!Object.values(TransactionStep).includes(step)) {
+      return res.status(400).json({ error: 'Invalid transaction step' });
+    }
+
+    const transaction = await Transaction.findOne({ transactionId });
+    
+    if (!transaction) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    // Initialize nested objects if they don't exist
+    if (!transaction.documents) {
+      transaction.documents = { validationDoc: null, receiptDoc: null };
+    }
+    if (!transaction.dollarDelivery) {
+      transaction.dollarDelivery = { scheduledDate: null, location: null, serialNumbers: [] };
+    }
+
+    // Update step and timestamp
+    transaction.currentStep = step;
+    transaction.stepTimestamps.set(step, new Date());
+
+    // Handle step-specific updates
+    switch (step) {
+      case TransactionStep.PESO_VALIDATED:
+        if (additionalData?.validationDoc && transaction.documents) {
+          transaction.documents.validationDoc = additionalData.validationDoc;
+        }
+        break;
+      
+      case TransactionStep.DOLLAR_DELIVERY_SCHEDULED:
+        if (additionalData?.scheduledDate && additionalData?.location && transaction.dollarDelivery) {
+          transaction.dollarDelivery.scheduledDate = new Date(additionalData.scheduledDate);
+          transaction.dollarDelivery.location = additionalData.location;
+        }
+        break;
+      
+      case TransactionStep.DOLLAR_SERIAL_VERIFIED:
+        if (additionalData?.serialNumbers && transaction.dollarDelivery) {
+          transaction.dollarDelivery.serialNumbers = additionalData.serialNumbers;
+        }
+        break;
+      
+      case TransactionStep.RECEIPT_SIGNED:
+        if (additionalData?.receiptDoc && transaction.documents) {
+          transaction.documents.receiptDoc = additionalData.receiptDoc;
+        }
+        break;
+    }
+
+    // Add notification
+    if (!transaction.notifications) {
+      transaction.set('notifications', []);
+    }
+    transaction.notifications.push({
+      step,
+      timestamp: new Date(),
+      message: `Transaction progressed to ${step}`
+    });
+
+    await transaction.save();
+
+    // Emit socket event for real-time updates
+    req.app.get('io').emit('transactionUpdate', {
+      transactionId,
+      step,
+      additionalData
+    });
+
+    res.json(transaction);
+  } catch (error) {
+    res.status(500).json({ error: 'Error updating transaction' });
+  }
+};
+
+export const listTransactions = async (req: Request, res: Response) => {
+  try {
+    const { page = 1, limit = 10, status } = req.query;
+    const query = status ? { currentStep: status } : {};
+    
+    const transactions = await Transaction.find(query)
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit));
+    
+    const total = await Transaction.countDocuments(query);
+    
+    res.json({
+      transactions,
+      total,
+      pages: Math.ceil(total / Number(limit)),
+      currentPage: Number(page)
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error fetching transactions' });
+  }
+};
+
+export const getCurrentExchangeRate = async (req: Request, res: Response) => {
+  try {
+    const rate = await exchangeRateService.getPhpToUsdRate();
+    const statistics = exchangeRateService.getStatistics();
+    
+    res.json({ 
+      rate: Number(rate.toFixed(4)),
+      lastUpdated: new Date().toISOString(),
+      statistics
+    });
+  } catch (error) {
+    console.error('Error fetching exchange rate:', error);
+    res.status(500).json({ 
+      error: 'Error fetching exchange rate',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+export const getHistoricalRates = async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+    const historicalRates = exchangeRateService.getHistoricalRates(limit);
+    
+    res.json({
+      rates: historicalRates,
+      total: historicalRates.length
+    });
+  } catch (error) {
+    console.error('Error fetching historical rates:', error);
+    res.status(500).json({
+      error: 'Error fetching historical rates',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Setup WebSocket event listeners for rate alerts
+export const setupExchangeRateWebSocket = (io: any) => {
+  exchangeRateService.on('rateAlert', (alert) => {
+    io.emit('exchangeRateAlert', alert);
+  });
+}; 

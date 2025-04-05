@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: vip_transaction_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=vip_transaction_tracker
+
+  # Uncomment the following services if you want to run the application in Docker
+  
+  # server:
+  #   build:
+  #     context: ./server
+  #     dockerfile: Dockerfile
+  #   container_name: vip_transaction_server
+  #   ports:
+  #     - "5000:5000"
+  #   environment:
+  #     - NODE_ENV=development
+  #     - MONGODB_URI=mongodb://mongodb:27017/vip_transaction_tracker
+  #     - JWT_SECRET=dev-jwt-secret-key
+  #     - CORS_ORIGIN=http://localhost:5173
+  #   depends_on:
+  #     - mongodb
+  #   volumes:
+  #     - ./server:/usr/src/app
+  #     - /usr/src/app/node_modules
+  
+  # client:
+  #   build:
+  #     context: ./client
+  #     dockerfile: Dockerfile
+  #   container_name: vip_transaction_client
+  #   ports:
+  #     - "5173:5173"
+  #   environment:
+  #     - VITE_API_URL=http://localhost:5000
+  #   volumes:
+  #     - ./client:/usr/src/app
+  #     - /usr/src/app/node_modules
+
+volumes:
+  mongodb_data: 
